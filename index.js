@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const app = express();
 const port = process.env.PORT || 5165;
 
@@ -9,6 +9,7 @@ const port = process.env.PORT || 5165;
 app.use(express.json());
 app.use(cors());
 
+// Mongodb connection
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.lh2xuij.mongodb.net/?appName=Cluster0`;
 
 const client = new MongoClient(uri, {
@@ -27,9 +28,11 @@ async function run() {
   try {
     await client.connect();
 
+    // database collection create or connect
     const db = client.db("zap_shift");
     const parcelCollection = db.collection("parcels");
 
+    // parcels-get api
     app.get("/parcels", async (req, res) => {
       try {
         const query = {};
@@ -44,6 +47,19 @@ async function run() {
       }
     });
 
+    // parcels-get api by id
+    app.get("/parcels/:id", async (req, res) => {
+      try {
+        const query = { _id: new ObjectId(req.params.id) };
+        const result = await parcelCollection.findOne(query);
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching parcel by id: ", error);
+        res.status(500).send({ message: "Failed to fetch parcel by id" });
+      }
+    });
+
+    // parcels-post api
     app.post("/parcels", async (req, res) => {
       try {
         const parcel = req.body;
@@ -54,6 +70,30 @@ async function run() {
         res.status(500).send({ message: "Failed to create parcel" });
       }
     });
+
+    // parcels-patch api
+    app.patch("parcels/:id", async (req, res) => {
+      try {
+        const query = { _id: new ObjectId(req.params.id) };
+        const result = await parcelCollection.updateOne(query);
+        res.send(result)
+      } catch (error) {
+        console.error("Error update parcel data:", error);
+        res.status(500).send({ message: "Failed to update parcel" });
+      }
+    });
+
+    // parcels-delete api
+    app.delete("parcels/:id", async(req, res) => {
+      try {
+        const query = { _id: new ObjectId(req.params.id) };
+        const result = await parcelCollection.deleteOne(query)
+        res.send(result)
+      } catch (error) {
+         console.error("Error delete parcel data:", error);
+        res.status(500).send({ message: "Failed to delete parcel" });
+      }
+    })
 
     await client.db("admin").command({ ping: 1 });
     console.log(
