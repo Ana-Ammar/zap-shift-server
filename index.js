@@ -37,7 +37,7 @@ async function run() {
       try {
         const query = {};
         if (req.query.email) {
-          query.email = req.query.email;
+          query.senderEmail = req.query.email;
         }
         const parcels = await parcelCollection.find(query).toArray();
         res.send(parcels);
@@ -75,8 +75,9 @@ async function run() {
     app.patch("parcels/:id", async (req, res) => {
       try {
         const query = { _id: new ObjectId(req.params.id) };
-        const result = await parcelCollection.updateOne(query);
-        res.send(result)
+        const updateParcel = { $set: req.body };
+        const result = await parcelCollection.updateOne(query, updateParcel);
+        res.send(result);
       } catch (error) {
         console.error("Error update parcel data:", error);
         res.status(500).send({ message: "Failed to update parcel" });
@@ -84,16 +85,16 @@ async function run() {
     });
 
     // parcels-delete api
-    app.delete("parcels/:id", async(req, res) => {
+    app.delete("parcels/:id", async (req, res) => {
       try {
         const query = { _id: new ObjectId(req.params.id) };
-        const result = await parcelCollection.deleteOne(query)
-        res.send(result)
+        const result = await parcelCollection.deleteOne(query);
+        res.send(result);
       } catch (error) {
-         console.error("Error delete parcel data:", error);
+        console.error("Error delete parcel data:", error);
         res.status(500).send({ message: "Failed to delete parcel" });
       }
-    })
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
