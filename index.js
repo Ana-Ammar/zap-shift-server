@@ -5,10 +5,32 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const stripe = require("stripe")(process.env.STRIPE_SECRET);
 const app = express();
 const port = process.env.PORT || 5165;
+const admin = require("firebase-admin");
+
+const serviceAccount = require("./firebase-admin-key.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
 
 // Middlewire
 app.use(express.json());
 app.use(cors());
+
+// Firebase Token verify
+const verifyFBToken = (req, res, next) => {
+  const token = req.headers.authorization;
+  console.log(token)
+  next();
+}
+
+// Generate tracking id for parcel
+function generateTrackingId() {
+  const prefix = "ZSC";
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+  return `${prefix}-${date}-${random}`;
+}
 
 // Mongodb connection
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.lh2xuij.mongodb.net/?appName=Cluster0`;
@@ -32,6 +54,7 @@ async function run() {
     // database collection create or connect
     const db = client.db("zap_shift");
     const parcelCollection = db.collection("parcels");
+    const paymentCollection = db.collection("payments");
 
     // parcels-get api
     app.get("/parcels", async (req, res) => {
@@ -106,11 +129,11 @@ async function run() {
           line_items: [
             {
               price_data: {
-                currency: "bdt",
+                currency: "usd",
                 unit_amount: amount,
                 product_data: {
-                  name: paymentInfo.parcelName
-                }
+                  name: paymentInfo.parcelName,
+                },
               },
               quantity: 1,
             },
@@ -119,6 +142,7 @@ async function run() {
           mode: "payment",
           metadata: {
             parcelId: paymentInfo.parcelId,
+            parcelName: paymentInfo.parcelName,
           },
           success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancel`,
@@ -126,12 +150,83 @@ async function run() {
         res.send({ url: session.url });
       } catch (error) {
         console.error("Error for payment api:", error);
-        res.status(500).send({ message: "Failed to payment done successfully" });
+        res
+          .status(500)
+          .send({ message: "Failed to payment done successfully" });
+      }
+    });
+
+    // api for retrive stripes data after payment
+    app.patch("/payment-success", async (req, res) => {
+      const sessionId = req.query.session_id;
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      // prevent duplicate data add into database
+      const transectionId = session.payment_intent;
+      const query = { transectionId: transectionId };
+      const paymentExist = await paymentCollection.findOne(query);
+      if (paymentExist) {
+        return res.send({
+          message: "Already Exist",
+          transectionId,
+          trackingId: paymentExist.trackingId,
+        });
+      }
+
+      const trackingId = generateTrackingId();
+      if (session.payment_status === "paid") {
+        const id = session.metadata.parcelId;
+        const query = { _id: new ObjectId(id) };
+        const update = {
+          $set: {
+            paymentStatus: "paid",
+            trackingId: trackingId,
+          },
+        };
+        console.log(session);
+        const result = await parcelCollection.updateOne(query, update);
+
+        // Added to Payment collection afted payment
+        const payment = {
+          amount: session.amount_subtotal / 100,
+          currency: session.currency,
+          customerEmail: session.customer_email,
+          parcelId: session.metadata.parcelId,
+          parcelName: session.metadata.parcelName,
+          transectionId: session.payment_intent,
+          paymentStatus: session.payment_status,
+          trackingId: trackingId,
+          paidAt: new Date(),
+        };
+
+        if (session.payment_status === "paid") {
+          const resultPayment = await paymentCollection.insertOne(payment);
+          res.send({
+            success: true,
+            trackingId: trackingId,
+            transectionId: session.payment_intent,
+            modifyParcel: result,
+            paymentInfo: resultPayment,
+          });
+        }
       }
     });
 
 
-    
+    // Payments get-api
+    app.get("/payments",verifyFBToken, async (req, res) => {
+      try {
+        const query = {};
+        if (req.query.email) {
+          query.customerEmail = req.query.email;
+        }
+        const result = await paymentCollection.find(query).toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error to fetch payment data:", error);
+        res.status(500).send({ message: "Failed fetch data" });
+      }
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
