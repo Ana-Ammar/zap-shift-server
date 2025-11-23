@@ -10,7 +10,7 @@ const admin = require("firebase-admin");
 const serviceAccount = require("./firebase-admin-key.json");
 
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+  credential: admin.credential.cert(serviceAccount),
 });
 
 // Middlewire
@@ -18,11 +18,18 @@ app.use(express.json());
 app.use(cors());
 
 // Firebase Token verify
-const verifyFBToken = (req, res, next) => {
+const verifyFBToken = async (req, res, next) => {
   const token = req.headers.authorization;
-  console.log(token)
+  if (!token) {
+    return res.status(401).send({ message: "Unauthorized access" });
+  }
+  try {
+    const idToken = token.split(" ")[1];
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    req.decoded_email = decoded.email;
+  } catch (error) {}
   next();
-}
+};
 
 // Generate tracking id for parcel
 function generateTrackingId() {
@@ -53,8 +60,28 @@ async function run() {
 
     // database collection create or connect
     const db = client.db("zap_shift");
+    const userCollection = db.collection("users");
     const parcelCollection = db.collection("parcels");
     const paymentCollection = db.collection("payments");
+
+    //add user to database
+    app.post("/users", async(req, res) => {
+      try {
+        const user = req.body;
+        user.role = "user";
+        user.createdAt = new Date();
+
+        const existUser = await userCollection.findOne({ email: user.email });
+        if(existUser) {
+          return res.send({message: 'User already exist'})
+        }
+        const result = await userCollection.insertOne(user);
+        res.send(result);
+      } catch (error) {
+        console.error("Error in adding user to database:", error);
+        res.status(500).send({ message: "Failed to add user" });
+      }
+    });
 
     // parcels-get api
     app.get("/parcels", async (req, res) => {
@@ -212,15 +239,21 @@ async function run() {
       }
     });
 
-
     // Payments get-api
-    app.get("/payments",verifyFBToken, async (req, res) => {
+    app.get("/payments", verifyFBToken, async (req, res) => {
       try {
         const query = {};
         if (req.query.email) {
           query.customerEmail = req.query.email;
+
+          if (req.query.email !== req.decoded_email) {
+            return res.status(403).send({ message: "Forbidden access" });
+          }
         }
-        const result = await paymentCollection.find(query).toArray();
+        const result = await paymentCollection
+          .find(query)
+          .sort({ paidAt: -1 })
+          .toArray();
         res.send(result);
       } catch (error) {
         console.error("Error to fetch payment data:", error);
