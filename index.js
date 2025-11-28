@@ -63,23 +63,50 @@ async function run() {
     const userCollection = db.collection("users");
     const parcelCollection = db.collection("parcels");
     const paymentCollection = db.collection("payments");
+    const riderCollection = db.collection("riders");
 
     //add user to database
-    app.post("/users", async(req, res) => {
+    app.post("/users", async (req, res) => {
       try {
         const user = req.body;
         user.role = "user";
         user.createdAt = new Date();
 
         const existUser = await userCollection.findOne({ email: user.email });
-        if(existUser) {
-          return res.send({message: 'User already exist'})
+        if (existUser) {
+          return res.send({ message: "User already exist" });
         }
         const result = await userCollection.insertOne(user);
         res.send(result);
       } catch (error) {
         console.error("Error in adding user to database:", error);
         res.status(500).send({ message: "Failed to add user" });
+      }
+    });
+
+    // get user data
+    app.get("/users", async (req, res) => {
+      try {
+        const query = {};
+        const users = await userCollection.find().toArray();
+        res.send(users);
+      } catch (error) {
+        console.error("Error fetching data from userCollection: ", error);
+        res.status(500).send({ message: "Failed to fetch users" });
+      }
+    });
+
+    // update user role
+    app.patch("/users/:id", async (req, res) => {
+      try {
+        const roleInfo = req.body;
+        const query = { _id: new ObjectId(req.params.id) };
+        const updateDoc = { $set: { role: roleInfo.role } };
+        const result = await userCollection.updateOne(query, updateDoc);
+        res.send(result)
+      } catch (error) {
+        console.error("Error getting single user from users", error)
+        res.status(500).send({message: "Failed to fetch single user"})
       }
     });
 
@@ -188,7 +215,7 @@ async function run() {
       const sessionId = req.query.session_id;
       const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-      // prevent duplicate data add into database
+      // prevent adding duplicate data into database
       const transectionId = session.payment_intent;
       const query = { transectionId: transectionId };
       const paymentExist = await paymentCollection.findOne(query);
@@ -258,6 +285,35 @@ async function run() {
       } catch (error) {
         console.error("Error to fetch payment data:", error);
         res.status(500).send({ message: "Failed fetch data" });
+      }
+    });
+
+    // Riders related API
+
+    app.get("/riders", async (req, res) => {
+      try {
+        const query = {};
+        if (req.query.status) {
+          query.status = req.query.status;
+        }
+        const result = await riderCollection.find(query).toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error to fetch rider data:", error);
+        res.status(500).send({ message: "Faild to fetch rider data" });
+      }
+    });
+
+    app.post("/riders", async (req, res) => {
+      try {
+        const riderInfo = req.body;
+        riderInfo.status = "pending";
+        riderInfo.createdAt = new Date();
+        const result = await riderCollection.insertOne(riderInfo);
+        res.send(result);
+      } catch (error) {
+        console.error("Error to add rider data:", error);
+        res.status(500).send({ message: "Faild to add rider data" });
       }
     });
 
