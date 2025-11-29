@@ -96,6 +96,19 @@ async function run() {
       }
     });
 
+    // get user role by email
+    app.get("/user/:email/role", async (req, res) => {
+      try {
+        const email = req.params.email;
+        const query = { email };
+        const user = await userCollection.findOne(query);
+        res.send({role: user?.role || 'user'});
+      } catch (error) {
+        console.error("Error to fetch user role", error);
+        res.status(500).send({ message: "Failed to fetch user role" });
+      }
+    });
+
     // update user role
     app.patch("/users/:id", async (req, res) => {
       try {
@@ -103,10 +116,10 @@ async function run() {
         const query = { _id: new ObjectId(req.params.id) };
         const updateDoc = { $set: { role: roleInfo.role } };
         const result = await userCollection.updateOne(query, updateDoc);
-        res.send(result)
+        res.send(result);
       } catch (error) {
-        console.error("Error getting single user from users", error)
-        res.status(500).send({message: "Failed to fetch single user"})
+        console.error("Error getting single user from users", error);
+        res.status(500).send({ message: "Failed to fetch single user" });
       }
     });
 
